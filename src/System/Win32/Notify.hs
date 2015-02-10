@@ -1,14 +1,13 @@
 module System.Win32.Notify
-  ( Event(..)
+  ( initWatchManager
+  , killWatchManager
+  , watchDirectory
+  , watch
+  , Event(..)
   , EventVariety(..)
   , Handler
   , WatchId(..)
   , WatchManager(..)
-  , initWatchManager
-  , killWatch
-  , killWatchManager
-  , watch
-  , watchDirectory
     ) where
 
 import Control.Concurrent
@@ -17,7 +16,6 @@ import Data.Bits
 import Data.List (intersect)
 import Data.Map (Map)
 import System.Directory
-import System.Win32 (closeHandle)
 import System.Win32.File
 import System.Win32.FileNotify
 import qualified Data.Map as Map
@@ -33,18 +31,14 @@ data Event
     -- | A file was modified. @Modified isDirectory file@
     = Modified
         { isDirectory :: Bool
-        , filePath :: FilePath
+        , maybeFilePath :: Maybe FilePath
         }
-    -- TODO: Problems with receiving (oldName, nil), (nil, newName) events at
-    -- unpredictable times mean that, for now, rename detection is disabled.
-    {-
-    -- A file was moved within the directory.
+    -- | A file was moved within the directory.
     | Renamed
         { isDirectory :: Bool
         , oldName     :: Maybe FilePath
-        , newName     :: Maybe FilePath
+        , newName     :: FilePath
         }
-    -}
     -- | A file was created. @Created isDirectory file@
     | Created
         { isDirectory :: Bool
@@ -59,7 +53,7 @@ data Event
 
 type Handler = Event -> IO ()
 
-data WatchId = WatchId ThreadId ThreadId Handle deriving (Eq, Ord, Show)
+data WatchId = WatchId ThreadId ThreadId deriving (Eq, Ord, Show)
 type WatchMap = Map WatchId Handler
 data WatchManager = WatchManager (MVar WatchMap)
 
@@ -71,7 +65,14 @@ initWatchManager =  do
 killWatchManager :: WatchManager -> IO ()
 killWatchManager (WatchManager mvarMap) = do
   watchMap <- readMVar mvarMap
-  flip mapM_ (Map.keys watchMap) $ killWatch
+  flip mapM_ (Map.keys watchMap) $ killThreads
+  where
+    killThreads :: WatchId -> IO ()
+    killThreads (WatchId tid1 tid2)
+      | tid1 == tid2 = killThread tid1
+      | otherwise    = do
+        killThread tid1
+        killThread tid2
 
 varietiesToFnFlags :: [EventVariety] -> FileNotificationFlag
 varietiesToFnFlags = foldl (.|.) 0 . map evToFnFlag'
@@ -93,7 +94,7 @@ watchDirectory (WatchManager mvarMap) dir watchSubTree varieties handler = do
   chanEvents <- newChan
   tid1 <- forkIO $ dispatcher chanEvents
   tid2 <- forkIO $ osEventsReader watchHandle chanEvents
-  modifyMVar_ mvarMap $ \watchMap -> return (Map.insert (WatchId tid1 tid2 watchHandle) handler watchMap)
+  modifyMVar_ mvarMap $ \watchMap -> return (Map.insert (WatchId tid1 tid2) handler watchMap)
   return (WatchId tid1 tid2)
   where
     dispatcher :: Chan [Event] -> IO ()
@@ -103,51 +104,43 @@ watchDirectory (WatchManager mvarMap) dir watchSubTree varieties handler = do
       dispatcher chanEvents
     osEventsReader :: Handle -> Chan [Event] -> IO ()
     osEventsReader watchHandle chanEvents = do
-      events <- (readDirectoryChanges watchHandle watchSubTree (varietiesToFnFlags varieties) >>= actsToEvents)
-      writeChan chanEvents events
+      event <- (readDirectoryChanges watchHandle watchSubTree (varietiesToFnFlags varieties) >>= actsToEvent)
+      writeChan chanEvents [event]
       osEventsReader watchHandle chanEvents
     maybeHandle :: Handler
     maybeHandle event =
-      if (==) (eventToVariety event) `any` varieties then handler event else return ()
+      if not (null ((eventToVarieties event) `intersect` varieties)) then handler event else return ()
 
 watch :: WatchManager -> FilePath -> Bool -> [EventVariety] -> IO (WatchId, Chan [Event])
 watch (WatchManager mvarMap) dir watchSubTree varieties = do
   watchHandle <- getWatchHandle dir
   chanEvents <- newChan
   tid <- forkIO $ osEventsReader watchHandle chanEvents
-  modifyMVar_ mvarMap $ \watchMap -> return (Map.insert (WatchId tid tid watchHandle) (\_ -> return ()) watchMap)
+  modifyMVar_ mvarMap $ \watchMap -> return (Map.insert (WatchId tid tid) (\_ -> return ()) watchMap)
   return ((WatchId tid tid), chanEvents)
   where
     osEventsReader :: Handle -> Chan [Event] -> IO ()
     osEventsReader watchHandle chanEvents = do
-      events <- (readDirectoryChanges watchHandle watchSubTree (varietiesToFnFlags varieties) >>= actsToEvents)
-      writeChan chanEvents events
+      event <- (readDirectoryChanges watchHandle watchSubTree (varietiesToFnFlags varieties) >>= actsToEvent)
+      writeChan chanEvents [event]
       osEventsReader watchHandle chanEvents
 
-killWatch :: WatchId -> IO ()
-killWatch (WatchId tid1 tid2 handle) = do
-    killThread tid1
-    if tid1 /= tid2 then killThread tid2 else void
-    closeHandle handle
+eventToVarieties :: Event -> [EventVariety]
+eventToVarieties event = case event of
+  Created  _ _   -> [Create]
+  Deleted  _ _   -> [Delete]
+  Modified _ _   -> [Modify]
+  Renamed  _ _ _ -> [Move]
 
-eventToVariety :: Event -> EventVariety
-eventToVariety event = case event of
-  Created  _ _   -> Create
-  Deleted  _ _   -> Delete
-  Modified _ _   -> Modify
-  -- Renamed  _ _ _ -> [Move]
-
-actsToEvents :: [(Action, String)] -> IO [Event]
-actsToEvents = mapM actToEvent
-  where
-    actToEvent (act, fn) = do
-      isDir <- doesDirectoryExist fn
-      case act of
-        FileModified    -> return $ Modified isDir fn
-        FileAdded       -> return $ Created  isDir fn
-        FileRemoved     -> return $ Deleted  isDir fn
-        FileRenamedOld  -> return $ Deleted  isDir fn
-        FileRenamedNew  -> return $ Created  isDir fn
--- actsToEvent [(FileRenamedOld, fnold),(FileRenamedNew, fnnew)] = do
---     isDir <- doesDirectoryExist fnnew
---     return $ Renamed isDir (Just fnold) fnnew
+actsToEvent :: [(Action, String)] -> IO Event
+actsToEvent [] = error "The impossible happened - there was no event!"
+actsToEvent [(act, fn)] = do
+    isDir <- doesDirectoryExist fn
+    case act of
+        FileModified    -> return $ Modified isDir (Just fn)
+        FileAdded       -> return $ Created isDir fn
+        FileRemoved     -> return $ Deleted isDir fn
+        FileRenamedOld  -> return $ Renamed isDir Nothing fn
+actsToEvent [(FileRenamedOld, fnold),(FileRenamedNew, fnnew)] = do
+    isDir <- doesDirectoryExist fnnew
+    return $ Renamed isDir (Just fnold) fnnew
