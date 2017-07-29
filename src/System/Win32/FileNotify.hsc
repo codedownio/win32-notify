@@ -62,10 +62,12 @@ faToAction fa = toEnum $ fromEnum fa - 1
 -- Defined in System.Win32.File, but with too few cases:
 -- type AccessMode = UINT
 
+#if !(MIN_VERSION_Win32(2,4,0))
 #{enum AccessMode,
  , fILE_LIST_DIRECTORY = FILE_LIST_DIRECTORY
  }
 -- there are many more cases but I only need this one.
+#endif
 
 type FileAction = DWORD
 
