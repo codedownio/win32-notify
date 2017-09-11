@@ -9,6 +9,13 @@ environment:
   global:
     STACK_ROOT: "c:\\sr"
     VSVER: 14
+  matrix:
+    - RESOLVER: lts-9.4
+    - RESOLVER: lts-7.24
+    - RESOLVER: lts-6.35
+    - RESOLVER: lts-2.22
+    - RESOLVER: nightly-2017-09-10
+
 
 install:
 - set PATH=C:\Program Files\Git\mingw64\bin;%PATH% # for curl
@@ -17,8 +24,4 @@ install:
 - stack setup > nul
 
 test_script:
-- stack --resolver lts-9.4  --no-system-ghc --install-ghc --jobs 1 test
-- stack --resolver lts-7.24 --no-system-ghc --install-ghc --jobs 1 test
-- stack --resolver lts-6.35 --no-system-ghc --install-ghc --jobs 1 test
-- stack --resolver lts-2.22 --no-system-ghc --install-ghc --jobs 1 test
-- stack --resolver nightly-2017-09-10 --no-system-ghc --install-ghc --jobs 1 test
+- stack --resolver %RESOLVER% --no-system-ghc --install-ghc --jobs 1 test
