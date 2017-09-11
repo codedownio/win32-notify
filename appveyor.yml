@@ -1,0 +1,24 @@
+
+cache:
+- "c:\\sr" # stack root, short paths == less problems
+
+build: off
+
+clone_folder: "c:\\project"
+environment:
+  global:
+    STACK_ROOT: "c:\\sr"
+    VSVER: 14
+
+install:
+- set PATH=C:\Program Files\Git\mingw64\bin;%PATH% # for curl
+- curl -ostack.zip -L --insecure http://www.stackage.org/stack/windows-i386
+- 7z x stack.zip stack.exe
+- stack setup > nul
+
+test_script:
+- stack --resolver lts-9.4  --no-system-ghc --install-ghc --jobs 1 test
+- stack --resolver lts-7.24 --no-system-ghc --install-ghc --jobs 1 test
+- stack --resolver lts-6.35 --no-system-ghc --install-ghc --jobs 1 test
+- stack --resolver lts-2.22 --no-system-ghc --install-ghc --jobs 1 test
+- stack --resolver nightly-2017-09-10 --no-system-ghc --install-ghc --jobs 1 test
