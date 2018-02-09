@@ -36,22 +36,22 @@ getWatchHandle dir =
 
 readDirectoryChanges :: Handle -> Bool -> FileNotificationFlag -> IO [(Action, String)]
 readDirectoryChanges h wst mask = do
-    let maxBuf = 16384
-    allocaBytes maxBuf $ \buffer -> do
+  let maxBuf = 16384
+  allocaBytes maxBuf $ \buffer -> do
     alloca $ \bret -> do
-        readDirectoryChangesW h buffer (toEnum maxBuf) wst mask bret
-        readChanges buffer
+      readDirectoryChangesW h buffer (toEnum maxBuf) wst mask bret
+      readChanges buffer
 
 data Action = FileAdded | FileRemoved | FileModified | FileRenamedOld | FileRenamedNew
   deriving (Show, Read, Eq, Ord, Enum)
 
 readChanges :: Ptr FILE_NOTIFY_INFORMATION -> IO [(Action, String)]
 readChanges pfni = do
-    fni <- peekFNI pfni
-    let entry = (faToAction $ fniAction fni, fniFileName fni)
-        nioff = fromEnum $ fniNextEntryOffset fni
-    entries <- if nioff == 0 then return [] else readChanges $ pfni `plusPtr` nioff
-    return $ entry:entries
+  fni <- peekFNI pfni
+  let entry = (faToAction $ fniAction fni, fniFileName fni)
+      nioff = fromEnum $ fniNextEntryOffset fni
+  entries <- if nioff == 0 then return [] else readChanges $ pfni `plusPtr` nioff
+  return $ entry:entries
 
 faToAction :: FileAction -> Action
 faToAction fa = toEnum $ fromEnum fa - 1
@@ -98,13 +98,13 @@ data FILE_NOTIFY_INFORMATION = FILE_NOTIFY_INFORMATION
 
 peekFNI :: Ptr FILE_NOTIFY_INFORMATION -> IO FILE_NOTIFY_INFORMATION
 peekFNI buf = do
-    neof <- (#peek FILE_NOTIFY_INFORMATION, NextEntryOffset)        buf
-    acti <- (#peek FILE_NOTIFY_INFORMATION, Action)                 buf
-    fnle <- (#peek FILE_NOTIFY_INFORMATION, FileNameLength)         buf
-    fnam <- peekCWStringLen
-                (buf `plusPtr` (#offset FILE_NOTIFY_INFORMATION, FileName), -- start of array
-                fromEnum (fnle :: DWORD) `div` 2 ) -- fnle is the length in *bytes*, and a WCHAR is 2 bytes
-    return $ FILE_NOTIFY_INFORMATION neof acti fnam
+  neof <- (#peek FILE_NOTIFY_INFORMATION, NextEntryOffset) buf
+  acti <- (#peek FILE_NOTIFY_INFORMATION, Action) buf
+  fnle <- (#peek FILE_NOTIFY_INFORMATION, FileNameLength) buf
+  fnam <- peekCWStringLen
+            (buf `plusPtr` (#offset FILE_NOTIFY_INFORMATION, FileName), -- start of array
+            fromEnum (fnle :: DWORD) `div` 2 ) -- fnle is the length in *bytes*, and a WCHAR is 2 bytes
+  return $ FILE_NOTIFY_INFORMATION neof acti fnam
 
 
 readDirectoryChangesW :: Handle -> Ptr FILE_NOTIFY_INFORMATION -> DWORD -> BOOL -> FileNotificationFlag -> LPDWORD -> IO ()
@@ -128,8 +128,7 @@ foreign import stdcall interruptible "windows.h ReadDirectoryChangesW"
 #else
 foreign import stdcall safe "windows.h ReadDirectoryChangesW"
 #endif
-  c_ReadDirectoryChangesW :: Handle -> LPVOID -> DWORD -> BOOL -> DWORD
-                                -> LPDWORD -> LPOVERLAPPED -> LPOVERLAPPED_COMPLETION_ROUTINE -> IO BOOL
+  c_ReadDirectoryChangesW :: Handle -> LPVOID -> DWORD -> BOOL -> DWORD -> LPDWORD -> LPOVERLAPPED -> LPOVERLAPPED_COMPLETION_ROUTINE -> IO BOOL
 
 {-
 type CompletionRoutine :: (DWORD, DWORD, LPOVERLAPPED) -> IO ()
@@ -147,7 +146,15 @@ data OVERLAPPED = OVERLAPPED
 -- In System.Win32.File, but missing a crucial case:
 -- type FileNotificationFlag = DWORD
 -}
+
+-- See https://msdn.microsoft.com/en-us/library/windows/desktop/aa365465(v=vs.85).aspx
 #{enum FileNotificationFlag,
- , fILE_NOTIFY_CHANGE_CREATION    = FILE_NOTIFY_CHANGE_CREATION
+ , fILE_NOTIFY_CHANGE_FILE_NAME = FILE_NOTIFY_CHANGE_FILE_NAME
+ , fILE_NOTIFY_CHANGE_DIR_NAME = FILE_NOTIFY_CHANGE_DIR_NAME
+ , fILE_NOTIFY_CHANGE_ATTRIBUTES = FILE_NOTIFY_CHANGE_ATTRIBUTES
+ , fILE_NOTIFY_CHANGE_SIZE = FILE_NOTIFY_CHANGE_SIZE
+ , fILE_NOTIFY_CHANGE_LAST_WRITE = FILE_NOTIFY_CHANGE_LAST_WRITE
  , fILE_NOTIFY_CHANGE_LAST_ACCESS = FILE_NOTIFY_CHANGE_LAST_ACCESS
+ , fILE_NOTIFY_CHANGE_CREATION = FILE_NOTIFY_CHANGE_CREATION
+ , fILE_NOTIFY_CHANGE_SECURITY = FILE_NOTIFY_CHANGE_SECURITY
  }
