@@ -17,14 +17,13 @@ Source-repository head
     location: https://github.com/haskell-fswatch/win32-notify
 
 library
-  build-depends:   base >= 4.3.1.0 && < 5, Win32, directory, filepath, containers >= 0.4.0.0
   ghc-options:     -Wall -fno-warn-incomplete-patterns -fno-warn-unused-imports
-  exposed-modules: System.Win32.Notify
-  other-modules:   System.Win32.FileNotify
-  hs-source-dirs:  src
-
-executable simple
-  Buildable:     False
-  main-is:       examples/simple/simple.hs
-  build-depends: base >= 4.3.1.0 && < 5, directory, Win32-notify >= 0.1
-  ghc-options:   -Wall -threaded
+  if os(windows)
+    build-depends:   base >= 4.3.1.0 && < 5, Win32, directory, filepath, containers >= 0.4.0.0
+    exposed-modules: System.Win32.Notify
+    other-modules:   System.Win32.FileNotify
+    hs-source-dirs:  src
+  else
+    build-depends:   base >= 4.3.1.0 && < 5
+    exposed-modules: Dummy
+    hs-source-dirs:  dummy-src
